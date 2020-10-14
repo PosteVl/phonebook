@@ -13,7 +13,7 @@ app.use(express.json())
 
 morgan.token('reqData', (req) => {
     return JSON.stringify(req.body)
-  })
+})
 
 const unknownEndpoint = (request, response) => {
     response.status(404).send({ error: 'unknown endpoint' })
@@ -21,14 +21,14 @@ const unknownEndpoint = (request, response) => {
 
 app.use(morgan(function (tokens, req, res) {
     return [
-      tokens.method(req, res),
-      tokens.url(req, res),
-      tokens.status(req, res),
-      tokens.res(req, res, 'content-length'), '-',
-      tokens['response-time'](req, res), 'ms',
-      req.method === 'POST' ? JSON.stringify(req.body) : ''
+        tokens.method(req, res),
+        tokens.url(req, res),
+        tokens.status(req, res),
+        tokens.res(req, res, 'content-length'), '-',
+        tokens['response-time'](req, res), 'ms',
+        req.method === 'POST' ? JSON.stringify(req.body) : ''
     ].join(' ')
-  }))
+}))
 
 
 let persons = [
@@ -64,13 +64,17 @@ app.get('/api/persons', (request, response) => {
     })
 })
 
-app.get('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    const person = persons.find(person => person.id === id)
-
-    Person.findById(request.params.id).then(note => {
-        response.json(note)
-    })
+app.get('/api/persons/:id', (request, response, next) => {
+    Person.findById(request.params.id)
+        .then(person => {
+            if (person) {
+                response.json(person)
+            }
+            else {
+                response.status(404).end()
+            }
+        })
+        .catch(error => next(error))
 })
 
 app.get('/info', (req, res) => {
@@ -86,14 +90,15 @@ app.get('/info', (req, res) => {
 })
 
 app.delete('/api/persons/:id', (request, response) => {
-    const id = Number(request.params.id)
-    persons = persons.filter(person => person.id !== id)
-
-    response.status(204).end()
+    Person.findByIdAndRemove(request.params.id)
+        .then(result => {
+            response.status(204).end()
+        })
+        .catch(error => next(error))
 })
 
 const generateRandomId = () => {
-    return Math.floor(Math.random() * Math.floor(persons.length*100));
+    return Math.floor(Math.random() * Math.floor(persons.length * 100));
 }
 
 app.post('/api/persons', (request, response) => {
@@ -105,12 +110,12 @@ app.post('/api/persons', (request, response) => {
         })
     }
 
-    if(persons.some(person => person.name === body.name)){
+    if (persons.some(person => person.name === body.name)) {
         return response.status(400).json({
             error: 'person name already registered'
         })
     }
-    if(persons.some(person => person.number === body.number)){
+    if (persons.some(person => person.number === body.number)) {
         return response.status(400).json({
             error: 'person number already registered'
         })
@@ -131,7 +136,20 @@ app.post('/api/persons', (request, response) => {
 
 app.use(unknownEndpoint)
 
+const errorHandler = (error, request, response, next) => {
+    console.error(error.message)
+
+    if (error.name === 'CastError') {
+        return response.status(400).send({ error: 'malformatted id' })
+    }
+
+    next(error)
+}
+
+// handler of requests with result to errors
+app.use(errorHandler)
+
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`)
-  })
+})
