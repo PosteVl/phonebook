@@ -78,8 +78,12 @@ app.get('/api/persons/:id', (request, response, next) => {
 })
 
 app.get('/info', (req, res) => {
-    res.send(`<div>
-                <p>Phonebook has info for ${persons.length} people </p>
+    Person.countDocuments({}, (err, result) => {
+        if (err) {
+            next(err);
+        } else {
+            res.send(`<div>
+                <p>Phonebook has info for ${result} people </p>
                 <p><span id="datetime"></span></p>
 
                     <script>
@@ -87,6 +91,10 @@ app.get('/info', (req, res) => {
                         document.getElementById("datetime").innerHTML = dt.toLocaleString();
                     </script>
               </div>`)
+        }
+    });
+
+
 })
 
 app.delete('/api/persons/:id', (request, response) => {
@@ -132,6 +140,20 @@ app.post('/api/persons', (request, response) => {
     })
 
     response.json(person)
+})
+
+app.put('/api/persons/:id', (request, response, next) => {
+    const body = request.body
+
+    const person = {
+        name: body.name,
+        number: body.number,
+    }
+    Person.findByIdAndUpdate(request.params.id, person, { new: true })
+        .then(updatedPerson => {
+            response.json(updatedPerson)
+        })
+        .catch(error => next(error))
 })
 
 app.use(unknownEndpoint)
