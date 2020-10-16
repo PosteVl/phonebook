@@ -4,6 +4,7 @@ const app = express()
 const morgan = require('morgan')
 const cors = require('cors')
 const Person = require('./models/person')
+const { handleError, ErrorHandler } = require("./helpers/error")
 
 
 
@@ -30,37 +31,9 @@ app.use(morgan(function (tokens, req, res) {
     ].join(' ')
 }))
 
-
-let persons = [
-    {
-        id: 1,
-        name: "Arto Hellas",
-        number: "040-123456"
-    },
-    {
-        id: 2,
-        name: "Ada Lovelace",
-        number: "39-44-5323523"
-    },
-    {
-        id: 3,
-        name: "Dan Abramov",
-        number: "12-43-234345"
-    },
-    {
-        id: 4,
-        name: "Mary Poppendick",
-        number: " 39-23-642387"
-    }
-]
-
-app.get('/', (req, res) => {
-    res.send('<h1>Hello World!</h1>')
-})
-
 app.get('/api/persons', (request, response) => {
-    Person.find({}).then(notes => {
-        response.json(notes)
+    Person.find({}).then(persons => {
+        response.json(persons)
     })
 })
 
@@ -74,7 +47,12 @@ app.get('/api/persons/:id', (request, response, next) => {
                 response.status(404).end()
             }
         })
-        .catch(error => next(error))
+        .catch((error) => {
+            if (err.name === "CastError" && err.kind === "ObjectId") {
+                next(new ErrorHandler(400, ["Malformatted Id"]));
+            }
+            next(error)
+        })
 })
 
 app.get('/info', (req, res) => {
@@ -102,38 +80,25 @@ app.delete('/api/persons/:id', (request, response) => {
         .then(result => {
             response.status(204).end()
         })
-        .catch(error => next(error))
+        .catch((err) => {
+            console.error(err);
+            if (err.name === "CastError" && err.kind === "ObjectId") {
+                next(new ErrorHandler(400, ["Malformatted Id"]));
+            }
+
+            next(err);
+        });
 })
 
 const generateRandomId = () => {
-    return Math.floor(Math.random() * Math.floor(persons.length * 100));
+    return Math.floor(Math.random() * Math.floor(5 * 100));
 }
 
-app.post('/api/persons', (request, response) => {
-    const body = request.body
+app.post('/api/persons', (req, res, next) => {
+    const body = req.body
 
     if (!body.name || !body.number) {
-        return response.status(400).json({
-            error: 'details missing'
-        })
-    }
-
-    if((/\d/g).test(body.number)){
-        return response.status(400).json({
-            error: 'number must have only digits, and at least 8 of them'
-        })
-    }
-
-
-    if (persons.some(person => person.name === body.name)) {
-        return response.status(400).json({
-            error: 'person name already registered'
-        })
-    }
-    if (persons.some(person => person.number === body.number)) {
-        return response.status(400).json({
-            error: 'person number already registered'
-        })
+        throw new ErrorHandler(400, ["Missing name and/or number fields"]);
     }
 
     const person = new Person({
@@ -143,28 +108,68 @@ app.post('/api/persons', (request, response) => {
     })
 
     person
-    .save()
-    .then(savedPerson => {
-        response.json(savedPerson)
-    })
-    .catch(error => next(error))
+        .save()
+        .then((savedPerson) => savedPerson.toJSON())
+        .then((formattedPerson) => {
+            res.json(formattedPerson);
+        })
+        .catch((err) => {
+            if (err.name === "ValidatorError" || err.name === "ValidationError") {
+                const keys = Object.keys(err.errors);
+                const messages = keys.map((e) => {
+                    const error = err.errors[e];
+                    const field = error.path[0].toUpperCase() + error.path.substr(1);
 
-    response.json(person)
+                    if (error.kind === "unique") {
+                        return `${field} already exists`;
+                    }
+                    if (error.kind === "minlength") {
+                        const length = error.message.match(/length \((\d+)\)/)[1];
+                        return `${field} must be at least ${length} characters long`;
+                    }
+
+                    return `ValidationError in ${field}`;
+                });
+
+                next(new ErrorHandler(422, messages));
+            } else {
+                next(err);
+            }
+        });
 })
 
-app.put('/api/persons/:id', (request, response, next) => {
-    const body = request.body
+app.put("/api/persons/:id", (req, res, next) => {
+    const { body } = req;
+
+    if (!body.name || !body.number) {
+        throw new ErrorHandler(400, ["Missing name and/or number fields"]);
+    }
 
     const person = {
         name: body.name,
         number: body.number,
-    }
-    Person.findByIdAndUpdate(request.params.id, person, { new: true })
-        .then(updatedPerson => {
-            response.json(updatedPerson)
+    };
+
+    Person.findByIdAndUpdate(req.params.id, person, {
+        new: true,
+    })
+        .then((updatedPerson) => {
+            if (updatedPerson) {
+                res.json(updatedPerson.toJSON());
+            } else {
+                res.status(404).end();
+            }
         })
-        .catch(error => next(error))
-})
+        .catch((err) => {
+            console.error(err);
+            if (err.name === "CastError" && err.kind === "ObjectId") {
+                next(new ErrorHandler(400, ["Malformatted Id"]));
+            }
+
+            next(err);
+        });
+});
+
 
 app.use(unknownEndpoint)
 
@@ -178,8 +183,15 @@ const errorHandler = (error, request, response, next) => {
     next(error)
 }
 
-// handler of requests with result to errors
-app.use(errorHandler)
+app.use((err, req, res, next) => {
+    if (!err) next();
+
+    if (err instanceof ErrorHandler) {
+        handleError(err, res);
+    } else {
+        next(err);
+    }
+});
 
 const PORT = process.env.PORT || 3001
 app.listen(PORT, () => {

@@ -22,7 +22,7 @@ const personSchema = new mongoose.Schema({
         required: true
     }
 })
-personSchema.plugin(uniqueValidator, { message: 'Error, expected name to be unique.' })
+personSchema.plugin(uniqueValidator)
 
 personSchema.set('toJSON', {
     transform: (document, returnedObject) => {
