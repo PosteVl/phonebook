@@ -118,6 +118,13 @@ app.post('/api/persons', (request, response) => {
         })
     }
 
+    if((/\d/g).test(body.number)){
+        return response.status(400).json({
+            error: 'number must have only digits, and at least 8 of them'
+        })
+    }
+
+
     if (persons.some(person => person.name === body.name)) {
         return response.status(400).json({
             error: 'person name already registered'
@@ -135,9 +142,12 @@ app.post('/api/persons', (request, response) => {
         number: body.number
     })
 
-    person.save().then(savedPerson => {
+    person
+    .save()
+    .then(savedPerson => {
         response.json(savedPerson)
     })
+    .catch(error => next(error))
 
     response.json(person)
 })
